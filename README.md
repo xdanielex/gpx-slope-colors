@@ -13,7 +13,7 @@ One self-contained executable. No Python, no runtime, no installer.
 [![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen.svg)](#tests-and-verification)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#installing)
 
-![A GPX track coloured by slope](docs/preview.svg)
+![A GPX track coloured by slope](preview.svg)
 
 </div>
 
@@ -77,7 +77,7 @@ Double-click the `.exe`, drag your GPX files onto the window, press
 GPX file and pick *Open with*. Presets for road cycling, MTB, hiking and long
 routes set sensible values in one click.
 
-![The Windows app](docs/screenshot.png)
+![The Windows app](screenshot.png)
 
 ## Options
 
