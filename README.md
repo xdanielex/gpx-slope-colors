@@ -255,3 +255,14 @@ been tested on an actual Edge or Oregon unit.
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Use it, change it, ship it, commercially too.
+
+### Support my Research 🚀
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/xdanielex272)
+[![Donate with BTC](https://img.shields.io/badge/Donate-Bitcoin-orange.svg)](#)
+[![Donate with USDT](https://img.shields.io/badge/Donate-Tether-green.svg)](#)
+
+* **Bitcoin (BTC):** `bc1q4l9v8welwr6mp4g6uc2t7ex0n274malynq6yqj`
+* **Tether (USDT - TRC20):** `TA3m7pqk1mTgZtFQHf7KufAqnaqsN95kPh`
+
+---
