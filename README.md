@@ -1,247 +1,257 @@
+<div align="center">
+
 # gpx-slope-colors
 
-Colour a GPX track by slope — **uphill in one colour, downhill in another** — following the
-**direction of travel**, and get a single GPX file you can import into
-[OsmAnd](https://osmand.net/) without a Pro subscription.
+**Colour a GPX track by slope — climbs one colour, descents another —
+following the direction you actually travel.**
 
-![preview](example/preview.svg)
+Works in **OsmAnd** (no Pro subscription) and on **Garmin**.
+One self-contained executable. No Python, no runtime, no installer.
 
-*Made with the synthetic track in [`example/demo.gpx`](example/demo.gpx).*
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599c.svg)](#building-from-source)
+[![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen.svg)](#tests-and-verification)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#installing)
+
+![A GPX track coloured by slope](docs/preview.svg)
+
+</div>
 
 ---
 
 ## Why
 
-OsmAnd can already colour tracks by slope natively (*Appearance → Colour → Slope*), and it does
-it properly: the gradient is signed and follows the order of the points, so uphill and downhill
-are distinguished rather than just "steep vs flat". **But that colouring mode requires OsmAnd
-Pro.**
+OsmAnd can colour a track by slope natively, and it does it properly: the
+gradient is *signed*, so uphill and downhill are told apart rather than just
+"steep vs flat". The catch is that this colouring mode is reserved for
+**OsmAnd Pro**.
 
-This script does the same job from the outside: it computes the gradient itself and writes the
-colours *into* the GPX file, as one `<trk>` per homogeneous section with its own
-`<osmand:color>`. Per-track colours stored in the file are honoured by the free version.
+This tool does the same job from the outside. It reads your GPX, works out
+where you are climbing and where you are descending — following the order of
+the points, so the result depends on the direction you ride or walk — and
+writes the colours *into* the file. Free OsmAnd displays them without
+complaint, because per-track colours in a GPX have never been a paid feature.
 
-Side benefit: because every section is drawn as a plain solid colour, the **direction arrows
-stay visible** — they disappear with any of OsmAnd's built-in non-solid colouring modes
-([osmandapp/OsmAnd#21082](https://github.com/osmandapp/OsmAnd/issues/21082)).
+The track is cut into consecutive `<trk>` blocks, each carrying its own colour.
+A useful side effect: because every block is a solid colour, **the direction
+arrows stay visible** — they disappear with OsmAnd's own gradient colouring
+([issue #21082](https://github.com/osmandapp/OsmAnd/issues/21082)).
 
-It is not OsmAnd-specific in any deep way — the output is standard GPX 1.1 and opens anywhere,
-the colours are simply ignored by apps that do not read the OsmAnd extensions.
+## Installing
 
-## Requirements
+Grab a build from the [Releases](../../releases) page, or build it yourself —
+it takes about five seconds and needs nothing but a C++17 compiler.
 
-- Python 3.8 or newer. **No external dependencies**, standard library only.
-  (The optional GUI uses `tkinter`, and `tkinterdnd2` if you want drag and drop.)
-- A GPX file that contains elevation data (`<ele>` tags).
-- OsmAnd 4.9.10 or newer, if you want per-track colours preserved on import.
-
-## Install
-
-There is nothing to install — grab the single file:
-
-```bash
-curl -O https://raw.githubusercontent.com/USER/gpx-slope-colors/main/gpx_slope_colors.py
-python3 gpx_slope_colors.py ride.gpx
-```
-
-Or clone the repository and run it in place.
-
-## Usage
-
-### Graphical app
-
-```bash
-python3 gpx_slope_colors_gui.py
-```
-
-Drop GPX files into the window, adjust the settings, press Convert. Drag and drop
-needs the optional `tkinterdnd2` package (`pip install tkinterdnd2`); without it the
-*Add files* button does the same job. On Linux you may also need `python3-tk`.
-
-### Command line
-
-```bash
-python3 gpx_slope_colors.py ride.gpx
-# -> writes ride_slope.gpx
-```
-
-That is usually all you need. The defaults are red uphill, green downhill, purple flat, at
-maximum line width.
-
-### Where the output goes
-
-Without `-o`, the output file is written **next to the input file** — not in the folder you run
-the command from — with the `_slope` suffix added:
-
-| Command | Output |
+| File | Platform |
 |---|---|
-| `... ride.gpx` | `ride_slope.gpx` |
-| `... tracks/ride.gpx` | `tracks/ride_slope.gpx` |
-| `... /home/me/Downloads/x.gpx` | `/home/me/Downloads/x_slope.gpx` |
+| `gpx-slope-colors.exe` | Windows app — drag, drop, Convert |
+| `gpx-slope-colors-cli.exe` | Windows command line |
+| `bin/gpx-slope-colors` | Linux / macOS command line (build from source) |
 
-With `-o` the path is exactly what you pass, relative to the current folder. Either way the
-script prints `written: <path>` when it is done.
+The Windows executables are statically linked: no DLLs, no admin rights, no
+setup program. They run from a USB stick.
 
-> An existing output file is **overwritten without asking**.
+## Quick start
 
-### Options
+```sh
+gpx-slope-colors ride.gpx
+```
 
-| Option | Default | Description |
-|---|---|---|
-| `gpx` | — | Input GPX file (the only required argument) |
-| `-h`, `--help` | — | Full help with examples |
-| `-o`, `--output` | `<name>_slope.gpx` | Output file (see above) |
-| `--threshold PCT` | `1.5` | Gradient % below which a section counts as flat |
-| `--window M` | `50` | Metres used to smooth elevations and compute the gradient |
-| `--minlen M` | `80` | Minimum length in metres of a coloured section |
-| `--uphill COLOR` | `red` | Uphill colour (name or `#rrggbb`) |
-| `--downhill COLOR` | `green` | Downhill colour (name or `#rrggbb`) |
-| `--flat COLOR` | `purple` | Flat colour (name or `#rrggbb`) |
-| `--no-flat` | off | Drop the flat class: everything is uphill or downhill |
-| `--split-files` | off | Write one file per class instead of a single one; ignores `-o` |
-| `--width W` | `24` | Line width: `thin`, `medium`, `bold`, or `1`–`24` |
-| `--no-arrows` | off | Do not show direction arrows |
-| `--keep-waypoints` | off | Copy `<wpt>` waypoints from the input into the output |
-| `--quiet` | off | Print errors only |
-| `--colors` | — | List the available colour names and exit |
-| `--version` | — | Print the version and exit |
+writes `ride_slope.gpx` next to the original — climbs in red, descents in
+green, level ground in purple.
+
+Then in OsmAnd: *Menu → My Places → Tracks → Import*, and show the track on
+the map. There is nothing to configure inside OsmAnd; the colours travel
+inside the file.
+
+A sample track is included if you want to try it straight away:
+
+```sh
+gpx-slope-colors example/demo.gpx
+```
+
+### The Windows app
+
+Double-click the `.exe`, drag your GPX files onto the window, press
+**Convert**. You can also drop files straight onto the icon, or right-click a
+GPX file and pick *Open with*. Presets for road cycling, MTB, hiking and long
+routes set sensible values in one click.
+
+![The Windows app](docs/screenshot.png)
+
+## Options
+
+Everything is optional; the defaults are tuned for cycling.
+
+```
+  -h, --help             show this help and exit
+  -o, --output PATH      output file (single input only; default: next to
+                         the input file, with the suffix added)
+      --output-dir DIR   write results into DIR instead
+      --suffix TEXT      suffix added to the name (default _slope)
+      --threshold PCT    gradient % below which a stretch is flat (1.5)
+      --window M         metres for smoothing and gradient (50)
+      --minlen M         shortest coloured section in metres (80)
+      --uphill COLOR     uphill colour: name or #rrggbb (red)
+      --downhill COLOR   downhill colour (green)
+      --flat COLOR       flat colour (purple)
+      --no-flat          no flat class: everything is uphill or downhill
+      --split-files      one file per class instead of a single one
+      --width W          thin | medium | bold | 1-24 (24 = maximum)
+      --no-arrows        do not show direction arrows
+      --keep-waypoints   copy <wpt> waypoints into the output
+      --quiet            print errors only
+      --colors           list the colour names and exit
+      --version          print the version and exit
+```
 
 ### Examples
 
-```bash
-# basic, automatic output name
-python3 gpx_slope_colors.py ride.gpx
-# -> ride_slope.gpx
+```sh
+# all defaults -> ride_slope.gpx
+gpx-slope-colors ride.gpx
 
-# colours by name, explicit output name
-python3 gpx_slope_colors.py ride.gpx -o coloured.gpx --uphill orange --downhill lightblue
+# pick the output name
+gpx-slope-colors ride.gpx -o coloured.gpx
 
-# hex codes
-python3 gpx_slope_colors.py ride.gpx -o coloured.gpx --uphill "#ff8800" --downhill "#0044cc"
+# a different suffix -> ride_osmand.gpx
+gpx-slope-colors ride.gpx --suffix _osmand
 
-# two classes only, no "flat"
-python3 gpx_slope_colors.py ride.gpx -o two_colours.gpx --no-flat
+# colours by name, or by hex code
+gpx-slope-colors ride.gpx --uphill orange --downhill lightblue
+gpx-slope-colors ride.gpx --uphill "#ff8800" --downhill "#0044cc"
 
-# long track, thinner line
-python3 gpx_slope_colors.py ride.gpx -o long.gpx --window 100 --minlen 250 --width 16
+# a long route: fewer, longer sections, slightly thinner line
+gpx-slope-colors ride.gpx --window 100 --minlen 250 --width 16
 
-# keep the waypoints from the original file
-python3 gpx_slope_colors.py ride.gpx --keep-waypoints
-
-# separate files per class (-o is ignored)
-python3 gpx_slope_colors.py ride.gpx --split-files
-# -> ride_uphill.gpx, ride_downhill.gpx, ride_flat.gpx
-
-# list the colour names
-python3 gpx_slope_colors.py --colors
+# a whole folder at once, all results in one place
+gpx-slope-colors --output-dir coloured *.gpx
 ```
 
-### Colour names
+Without `-o` the file is written **next to the input file**, not in the
+directory you ran the command from. An existing output file is overwritten
+without asking.
 
-Usable with `--uphill`, `--downhill` and `--flat`. Italian aliases are accepted too
-(`rosso`, `verde`, `azzurro`, …). A `#rrggbb` hex code always works.
+### Colours by name
 
-| | Name | Hex |
+`red` `darkred` `orange` `yellow` `green` `lightgreen` `darkgreen`
+`lightblue` `blue` `darkblue` `cyan` `purple` `magenta` `pink` `brown`
+`gray` `lightgray` `black` `white` — or any `#rrggbb` code. Italian aliases
+(`rosso`, `verde`, `viola`, `azzurro`…) work too. Run `--colors` for the full
+list with hex codes.
+
+### Tuning
+
+| Problem | What to change |
+|---|---|
+| Too many tiny sections | raise `--minlen` first, then `--window` |
+| Gentle slopes counted as climbs | raise `--threshold` |
+| Flat sections you don't want at all | `--no-flat` |
+
+Suggested thresholds: **1** for road cycling, **1.5** for MTB and gravel,
+**3** for hiking. For routes over 50 km, `--window 100 --minlen 250` keeps the
+map readable.
+
+## Where the colours show up
+
+The output is standard GPX 1.1 and opens anywhere. Colours are another matter,
+because GPX never standardised them — so the file carries a colour tag for each
+of the two ecosystems that actually read one.
+
+| App | Colours | Notes |
 |---|---|---|
-| 🔴 | `red` | `#e01b1b` |
-| 🔴 | `darkred` | `#8b0000` |
-| 🟠 | `orange` | `#ff7a00` |
-| 🟡 | `yellow` | `#f2c200` |
-| 🟢 | `green` | `#00a03c` |
-| 🟢 | `lightgreen` | `#5ad45f` |
-| 🟢 | `darkgreen` | `#00602a` |
-| 🔵 | `lightblue` | `#00bfff` |
-| 🔵 | `blue` | `#0a7ef0` |
-| 🔵 | `darkblue` | `#00337f` |
-| 🔵 | `cyan` | `#00e5e5` |
-| 🟣 | `purple` | `#9b30d9` |
-| 🟣 | `magenta` | `#c724b1` |
-| 🟣 | `pink` | `#ff2d95` |
-| 🟤 | `brown` | `#8b5a2b` |
-| ⚪ | `gray` / `grey` | `#8c8c8c` |
-| ⚪ | `lightgray` | `#c8c8c8` |
-| ⚫ | `black` | `#1a1a1a` |
-| ⚪ | `white` | `#ffffff` |
+| **OsmAnd** (Android / iOS) | **yes** | reads `<osmand:color>`; line width and arrows too |
+| **Garmin BaseCamp** | **yes** | reads `<gpxx:DisplayColor>` |
+| **Garmin devices** (Edge, Oregon, GPSMAP…) | **yes** | read `<gpxtrx:DisplayColor>` |
+| Strava, Komoot, Gaia GPS, Google Earth | no | track opens fine, drawn in one colour |
 
-## Tuning
+**OsmAnd** takes a free-form hex code, so you get exactly the colour you asked
+for, plus the line width and the direction arrows. Needs OsmAnd **4.9.10 or
+newer**; older versions collapse a multi-track file to a single colour on
+import.
 
-**`--threshold`** — raise it if you get too many tiny sections on nearly flat ground, lower it
-to pick up gentle gradients.
+**Garmin** uses a closed list: its schema allows only **17 fixed colour names**,
+no hex codes. Each colour you pick is matched to the nearest allowed name in
+CIELAB space — perceptual distance, because plain RGB distance picks the wrong
+family (it put our green on `DarkCyan`). The default red stays `Red` and the
+default green becomes `DarkGreen`.
 
-| Activity | Suggested threshold |
-|---|---|
-| Road cycling | `1` |
-| MTB / gravel | `1.5` |
-| Hiking | `3` |
+The Garmin tag is written **twice**, under both the `gpxx:` and `gpxtrx:`
+prefixes of the same namespace. This is deliberate: BaseCamp writes one, the
+handhelds read the other, and a file written by one Garmin product can
+otherwise lose its colours in another.
 
-**`--window`** and **`--minlen`** control fragmentation. On long tracks the defaults produce too
-many sections:
+### Sensor data
 
-| Track length | Suggested |
-|---|---|
-| up to 20 km | defaults (`--window 50 --minlen 80`) |
-| 20–50 km | `--window 80 --minlen 150` |
-| over 50 km | `--window 100 --minlen 250` |
+Per-point `<extensions>` are copied across verbatim, so **heart rate, cadence,
+power and temperature survive** the conversion, with the `gpxtpx` and `gpxpx`
+namespaces declared in the header.
 
-If the result looks choppy, `--minlen` is the knob to turn first.
+### Strava and Komoot
 
-## Importing into OsmAnd
-
-1. Copy the output file to your phone.
-2. OsmAnd → **My Places → Tracks → Import** (or just open the file with OsmAnd).
-3. Show the track on the map. **Nothing to set under Appearance** — the colours are already
-   inside the file.
-
-Requires OsmAnd **4.9.10 or newer**. Older versions flattened multi-track GPX files to a single
-colour on import; with those you had to use *import as separate tracks* or `--split-files`.
+**They cannot show these colours, and no GPX file can make them.** A single
+track carries a single colour; the colours here exist because the ride is cut
+into consecutive tracks, which is precisely what those sites will not accept as
+one activity. There is nothing to convert for them — upload your original file,
+which this tool never modifies.
 
 ## How it works
 
-1. Track points are read in the order they are stored, i.e. the direction of travel.
-2. The elevation profile is smoothed with a distance-weighted moving average (`--window`) to
-   remove GPS and barometric noise.
-3. For each point the gradient is computed over a window centred on it, and classified as
-   uphill / flat / downhill against `--threshold`.
-4. Adjacent points of the same class are grouped into sections; sections shorter than
-   `--minlen` are merged into their larger neighbour, then adjacent sections of the same class
-   are joined.
-5. The GPX is rewritten as consecutive `<trk>` elements, each carrying its own
-   `<osmand:color>`, `<osmand:width>`, `<osmand:show_arrows>` and
-   `<osmand:coloring_type>solid</osmand:coloring_type>`.
+1. Read every `<trkpt>` in file order — this is what makes the result
+   direction-aware.
+2. Fill any missing `<ele>` by linear interpolation between known points.
+3. Smooth elevations over a sliding window of `--window` metres, so GPS noise
+   doesn't create a climb every few seconds.
+4. Compute the gradient over the same window and label each point uphill,
+   downhill or flat against `--threshold`.
+5. Merge runs shorter than `--minlen` into their neighbours.
+6. Write one `<trk>` per run, each with its own colour, width and arrow
+   setting. Consecutive sections share their junction point, so no gap appears
+   between two colours.
 
-Each section is extended by one point past its end so that it shares the junction point with the
-next one. Without this overlap the segment between the last point of a section and the first of
-the next would be drawn by neither, leaving visible gaps at high zoom.
+The input GPX must contain elevation data. If it doesn't, the tool says so
+instead of guessing. (OsmAnd can add it: *Analyse on map → Correct altitude*.)
 
-## Limitations
+## Building from source
 
-- **Elevation data is required.** Without `<ele>` tags the script exits with an error. Fix the
-  track first (OsmAnd's altitude correction, or a DEM service).
-- **Track only.** Routes (`<rte>`) are ignored; only `<trk>`/`<trkseg>`/`<trkpt>` is read.
-- **Waypoints are dropped unless you pass `--keep-waypoints`.**
-- Timestamps and elevations are preserved; any other per-point extension (heart rate, cadence,
-  power…) is **not** carried over.
-- The junction overlap means the output has slightly more track points than the input — one
-  extra per section.
-
-## Regenerating the example
-
-```bash
-python3 make_demo.py                                    # writes example/demo.gpx
-python3 gpx_slope_colors.py example/demo.gpx \
-        -o example/demo_slope.gpx --window 60 --minlen 150
-python3 make_preview.py                                 # writes example/preview.svg
+```sh
+make          # command line tool   -> bin/gpx-slope-colors
+make test     # build and run the test suite (115 checks)
+make windows  # Windows .exe, GUI and CLI -> dist/
+make clean
 ```
 
-## Support this project
+Only a C++17 compiler is needed — no CMake, no external libraries, not even a
+GPX parsing dependency. The Windows targets cross-compile with mingw-w64
+(`sudo apt install mingw-w64`).
 
-The code here is free and MIT-licensed — take it and use it.
+```
+src/slope_core.{hpp,cpp}   engine: parsing, smoothing, classification, output
+src/main_cli.cpp           command line front end
+src/main_gui.cpp           native Win32 GUI, no framework
+tests/test_slope.cpp       test suite
+```
 
-If you would rather have it ready to go, there is a **pay-what-you-want package** on
-[Gumroad](https://YOURNAME.gumroad.com/l/gpx-slope-colors): double-click launchers for
-Windows, macOS and Linux, plus an illustrated PDF manual. The minimum is zero, so you
-can take that too.
+## Tests and verification
 
-## License
+`make test` runs **115 checks** covering gradient sign and direction
+awareness, section merging, colour parsing, the CIELAB Garmin mapping, sensor
+data preservation, and edge cases like missing elevations and self-closing XML
+tags.
 
-[MIT](LICENSE).
+Beyond the unit tests, the output has been checked against:
+
+- **the official [GPX 1.1 schema](https://www.topografix.com/GPX/1/1/gpx.xsd)** — valid;
+- **[Garmin's GpxExtensions v3 schema](https://www8.garmin.com/xmlschemas/GpxExtensionsv3.xsd)** — every
+  `TrackExtension` block valid, every emitted colour name inside the permitted
+  enumeration;
+- **a reference implementation**, on a real 120 km route with 3,941 points: all
+  39 track blocks match, with the same section boundaries and colours.
+
+One honest caveat: the Garmin claim is verified *against Garmin's published
+schema*, not on physical hardware. The file is provably well-formed; it has not
+been tested on an actual Edge or Oregon unit.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Use it, change it, ship it, commercially too.
