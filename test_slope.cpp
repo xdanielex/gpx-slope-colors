@@ -1,7 +1,7 @@
 // test_slope.cpp - self contained test suite for the slope engine.
 //
-// Build:  g++ -std=c++17 -O2 -o bin/tests tests/test_slope.cpp src/slope_core.cpp
-// Run:    ./bin/tests
+// Build:  g++ -std=c++17 -O2 -o tests test_slope.cpp slope_core.cpp
+// Run:    ./tests          (or simply: make test)
 
 #include "slope_core.hpp"
 

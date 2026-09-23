@@ -14,6 +14,7 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 MINGW    ?= x86_64-w64-mingw32-g++
 STRIPW   ?= x86_64-w64-mingw32-strip
+WINDRES  ?= x86_64-w64-mingw32-windres
 
 CORE   := slope_core.cpp
 HDR    := slope_core.hpp
@@ -35,17 +36,22 @@ test: tests
 
 windows: windows-gui windows-cli
 
-windows-gui: main_gui.cpp $(CORE) $(HDR)
+# Version resource: gives the .exe a name, version and author.
+# Without it the binary is anonymous, which antivirus heuristics dislike.
+version.o: version.rc
+	$(WINDRES) version.rc -O coff -o version.o
+
+windows-gui: main_gui.cpp $(CORE) $(HDR) version.o
 	$(MINGW) $(CXXFLAGS) -municode -mwindows \
-	    -o gpx-slope-colors.exe main_gui.cpp $(CORE) \
+	    -o gpx-slope-colors.exe main_gui.cpp $(CORE) version.o \
 	    $(WINFLG) $(WINLIB)
 	-$(STRIPW) gpx-slope-colors.exe
 
-windows-cli: main_cli.cpp $(CORE) $(HDR)
+windows-cli: main_cli.cpp $(CORE) $(HDR) version.o
 	$(MINGW) $(CXXFLAGS) \
-	    -o gpx-slope-colors-cli.exe main_cli.cpp $(CORE) \
+	    -o gpx-slope-colors-cli.exe main_cli.cpp $(CORE) version.o \
 	    $(WINFLG)
 	-$(STRIPW) gpx-slope-colors-cli.exe
 
 clean:
-	rm -f gpx-slope-colors tests gpx-slope-colors.exe gpx-slope-colors-cli.exe
+	rm -f gpx-slope-colors tests version.o gpx-slope-colors.exe gpx-slope-colors-cli.exe
