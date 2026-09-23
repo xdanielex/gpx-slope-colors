@@ -166,9 +166,9 @@ of the two ecosystems that actually read one.
 | Strava, Komoot, Gaia GPS, Google Earth | no | track opens fine, drawn in one colour |
 
 **OsmAnd** takes a free-form hex code, so you get exactly the colour you asked
-for, plus the line width and the direction arrows. Needs OsmAnd **4.9.10 or
-newer**; older versions collapse a multi-track file to a single colour on
-import.
+for, plus the line width and the direction arrows. When importing, choose
+*separate tracks* rather than *as one track* — merging the tracks merges the
+colours away.
 
 **Garmin** uses a closed list: its schema allows only **17 fixed colour names**,
 no hex codes. Each colour you pick is matched to the nearest allowed name in
