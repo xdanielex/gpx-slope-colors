@@ -32,7 +32,7 @@ echo
 echo "Done. Built: $(pwd)/gpx-slope-colors"
 echo
 echo "Try it:"
-echo "  ./gpx-slope-colors ../example/demo.gpx"
+echo "  ./gpx-slope-colors demo.gpx"
 echo
 echo "See every option:"
 echo "  ./gpx-slope-colors --help"

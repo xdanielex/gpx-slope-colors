@@ -3,7 +3,7 @@
 // Build:  g++ -std=c++17 -O2 -o bin/tests tests/test_slope.cpp src/slope_core.cpp
 // Run:    ./bin/tests
 
-#include "../src/slope_core.hpp"
+#include "slope_core.hpp"
 
 #include <cmath>
 #include <cstdio>
