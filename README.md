@@ -46,7 +46,7 @@ it takes about five seconds and needs nothing but a C++17 compiler.
 |---|---|
 | `gpx-slope-colors.exe` | Windows app — drag, drop, Convert |
 | `gpx-slope-colors-cli.exe` | Windows command line |
-| `bin/gpx-slope-colors` | Linux / macOS command line (build from source) |
+| `gpx-slope-colors` | Linux / macOS command line (build from source) |
 
 The Windows executables are statically linked: no DLLs, no admin rights, no
 setup program. They run from a USB stick.
@@ -67,7 +67,7 @@ inside the file.
 A sample track is included if you want to try it straight away:
 
 ```sh
-gpx-slope-colors example/demo.gpx
+gpx-slope-colors demo.gpx
 ```
 
 ### The Windows app
@@ -215,10 +215,16 @@ instead of guessing. (OsmAnd can add it: *Analyse on map → Correct altitude*.)
 ## Building from source
 
 ```sh
-make          # command line tool   -> bin/gpx-slope-colors
+make          # command line tool   -> gpx-slope-colors
 make test     # build and run the test suite (115 checks)
-make windows  # Windows .exe, GUI and CLI -> dist/
+make windows  # Windows .exe, GUI and CLI
 make clean
+```
+
+On macOS or Linux without `make`, one command is enough:
+
+```sh
+sh build.sh
 ```
 
 Only a C++17 compiler is needed — no CMake, no external libraries, not even a
@@ -226,10 +232,11 @@ GPX parsing dependency. The Windows targets cross-compile with mingw-w64
 (`sudo apt install mingw-w64`).
 
 ```
-src/slope_core.{hpp,cpp}   engine: parsing, smoothing, classification, output
-src/main_cli.cpp           command line front end
-src/main_gui.cpp           native Win32 GUI, no framework
-tests/test_slope.cpp       test suite
+slope_core.{hpp,cpp}   engine: parsing, smoothing, classification, output
+main_cli.cpp           command line front end
+main_gui.cpp           native Win32 GUI, no framework
+test_slope.cpp         test suite
+demo.gpx               sample track
 ```
 
 ## Tests and verification
@@ -255,14 +262,3 @@ been tested on an actual Edge or Oregon unit.
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Use it, change it, ship it, commercially too.
-
-### Support my Research 🚀
-
-[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/xdanielex272)
-[![Donate with BTC](https://img.shields.io/badge/Donate-Bitcoin-orange.svg)](#)
-[![Donate with USDT](https://img.shields.io/badge/Donate-Tether-green.svg)](#)
-
-* **Bitcoin (BTC):** `bc1q4l9v8welwr6mp4g6uc2t7ex0n274malynq6yqj`
-* **Tether (USDT - TRC20):** `TA3m7pqk1mTgZtFQHf7KufAqnaqsN95kPh`
-
----
