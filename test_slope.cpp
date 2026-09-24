@@ -1,7 +1,7 @@
 // test_slope.cpp - self contained test suite for the slope engine.
 //
-// Build:  g++ -std=c++17 -O2 -o tests test_slope.cpp slope_core.cpp
-// Run:    ./tests          (or simply: make test)
+// Build:  g++ -std=c++17 -O2 -o bin/tests tests/test_slope.cpp src/slope_core.cpp
+// Run:    ./bin/tests
 
 #include "slope_core.hpp"
 
@@ -301,8 +301,22 @@ void testProcess() {
 
     std::string xml = readAll(opt.output);
     check(xml.find("<?xml") == 0, "output starts with the xml declaration");
-    check(xml.find("xmlns:osmand=\"https://osmand.net\"") != std::string::npos,
+    check(xml.find("xmlns:osmand=\"https://osmand.net/docs/technical/"
+                   "osmand-file-formats/osmand-gpx\"") != std::string::npos,
           "the osmand namespace is declared");
+
+    // Arrows must sit at the <gpx> level: OsmAnd ignores show_arrows inside
+    // <trk><extensions>. Confirmed on the device, September 2026.
+    const size_t lastTrk = xml.rfind("</trk>");
+    const size_t fileExt = xml.rfind("<extensions>");
+    check(lastTrk != std::string::npos && fileExt != std::string::npos &&
+              fileExt > lastTrk,
+          "a file-level <extensions> block follows the last track");
+    check(xml.find("  <extensions>\n    <osmand:show_arrows>true"
+                   "</osmand:show_arrows>\n  </extensions>") != std::string::npos,
+          "arrows are declared at the gpx level");
+    check(xml.rfind("</extensions>") < xml.rfind("</gpx>"),
+          "the file-level block closes before </gpx>");
     check(xml.find("<osmand:color>#e01b1b</osmand:color>") != std::string::npos,
           "uphill colour present");
     check(xml.find("<osmand:color>#00a03c</osmand:color>") != std::string::npos,
@@ -580,6 +594,242 @@ void testGapsBetweenSections() {
 
 }  // namespace
 
+void testSlopeMerge() {
+    group("merging several inputs into one file");
+    std::string err;
+
+    // three little hills, as three separate files
+    std::vector<std::string> ins;
+    for (int n = 0; n < 3; ++n) {
+        char nm[32];
+        std::snprintf(nm, sizeof(nm), "stage%d.gpx", n);
+        ins.push_back(makeGpx(nm, 120, 50.0, [](int i) {
+            return i < 60 ? 100 + i * 5 : 100 + (120 - i) * 5;
+        }));
+    }
+
+    Options opt;
+    opt.merge = true;
+    MergeSink sink;
+    size_t sectionsTotal = 0;
+    for (const std::string &in : ins) {
+        Stats st;
+        check(process(in, opt, st, err, &sink), "a stage feeds the sink");
+        check(st.written.empty(), "and writes no file of its own");
+        sectionsTotal += st.sections;
+    }
+    check(sink.files == 3, "three files went in");
+    check(sink.trackCount == sectionsTotal, "every section became a track");
+
+    std::string path = tmpDir() + "/gsc_merged.gpx";
+    check(writeMerged(sink, path, opt, err), "the merged file is written");
+    std::string xml = readAll(path);
+
+    check(xml.find("<?xml") == 0, "it starts with the xml declaration");
+    // Count the root only: "<gpx " / "<gpx>" and not the gpxx/gpxtrx
+    // prefixes, which legitimately appear inside every track.
+    size_t roots = 0, p = 0;
+    while ((p = xml.find("<gpx", p)) != std::string::npos) {
+        char c = p + 4 < xml.size() ? xml[p + 4] : ' ';
+        if (c == ' ' || c == '>' || c == '\n') ++roots;
+        p += 4;
+    }
+    check(roots == 1, "exactly one <gpx> root");
+
+    size_t trks = 0; p = 0;
+    while ((p = xml.find("<trk>", p)) != std::string::npos) { ++trks; p += 5; }
+    check(trks == sink.trackCount, "all tracks are present");
+
+    // the three slope colours survive the merge
+    check(xml.find("#e01b1b") != std::string::npos, "uphill red is there");
+    check(xml.find("#00a03c") != std::string::npos, "downhill green is there");
+
+    // track names carry the source file, so stages stay tellable apart
+    check(xml.find("stage0 - ") != std::string::npos, "names are prefixed");
+    check(xml.find("stage2 - ") != std::string::npos, "for every stage");
+
+    // Arrows are written inside each <trk> and once more at <gpx> level;
+    // OsmAnd only honours the latter, so what matters is that exactly one
+    // sits after the last track. This mirrors the single-file output.
+    const size_t lastTrk = xml.rfind("</trk>");
+    size_t tail = 0; p = lastTrk;
+    while ((p = xml.find("<osmand:show_arrows>", p)) != std::string::npos) {
+        ++tail; p += 10;
+    }
+    check(tail == 1, "exactly one file-level arrows block, after the tracks");
+
+    // an empty sink must not produce a stray file
+    MergeSink empty;
+    check(!writeMerged(empty, tmpDir() + "/gsc_empty.gpx", opt, err),
+          "an empty merge fails instead of writing an empty gpx");
+}
+
+void testMarkersAnd3d() {
+    group("distance markers and the 3D wall");
+    std::string err;
+    std::string path = makeGpx("wall.gpx", 120, 50.0, [](int i) {
+        return i < 60 ? 100 + i * 5 : 100 + (120 - i) * 5;
+    });
+
+    // Nothing asked for: neither block appears. This is the guard against
+    // stamping a setting onto every file the user converts - the markers
+    // combo once defaulted to writing no_split, which did exactly that.
+    { Options o; o.output = tmpDir() + "/w_plain.gpx";
+      Stats st; check(process(path, o, st, err), "a plain run works");
+      std::string x = readAll(o.output);
+      check(x.find("split_type") == std::string::npos, "no split tag by default");
+      check(x.find("split_interval") == std::string::npos, "no interval either");
+      check(x.find("line_3d") == std::string::npos, "no 3D tags by default");
+      check(x.find("vertical_exaggeration") == std::string::npos,
+            "no exaggeration by default"); }
+
+    // An explicit "none" switches the wall off in a file that has one, so it
+    // has to be written. Empty and "none" are different requests.
+    { Options o; o.output = tmpDir() + "/w_none.gpx";
+      o.viz3d = "none";
+      Stats st; check(process(path, o, st, err), "an explicit 3D off works");
+      std::string x = readAll(o.output);
+      check(x.find("<osmand:line_3d_visualization_by_type>none")
+            != std::string::npos, "none is written when asked for");
+      check(x.find("wall_color_type") == std::string::npos,
+            "and drags no wall colour with it");
+      check(x.find("vertical_exaggeration") == std::string::npos,
+            "nor an exaggeration"); }
+
+    // ...but asking for removal explicitly does write no_split
+    { Options o; o.output = tmpDir() + "/w_nosplit.gpx";
+      o.splitType = "no_split";
+      Stats st; check(process(path, o, st, err), "explicit removal works");
+      std::string x = readAll(o.output);
+      check(x.find("<osmand:split_type>no_split") != std::string::npos,
+            "no_split is written when asked for");
+      check(x.find("split_interval") == std::string::npos,
+            "and carries no interval"); }
+
+    // markers + wall, with the defaults filled in
+    { Options o; o.output = tmpDir() + "/w_3d.gpx";
+      o.splitType = "distance"; o.splitInterval = "1000";
+      o.viz3d = "altitude"; o.scale3d = "2.0";
+      Stats st; check(process(path, o, st, err), "markers and wall are written");
+      std::string x = readAll(o.output);
+      check(x.find("<osmand:split_type>distance") != std::string::npos,
+            "split type is there");
+      // OsmAnd's own exports write this as a Double ("2000.0"). A bare
+      // integer is what a human writes and is not what the app produces.
+      check(x.find("<osmand:split_interval>1000.0") != std::string::npos,
+            "the interval is written the way OsmAnd writes it");
+      check(asDouble("1000") == "1000.0", "integers gain a decimal point");
+      check(asDouble("1500.5") == "1500.5", "existing decimals are left alone");
+      check(asDouble("") == "", "an empty value stays empty");
+      check(x.find("<osmand:line_3d_visualization_by_type>altitude")
+            != std::string::npos, "3D type is there");
+      // solid is the default wall colour on purpose: a gradient would paint
+      // over the slope colours the program just worked out.
+      check(x.find("<osmand:line_3d_visualization_wall_color_type>solid")
+            != std::string::npos, "the wall follows the track colour");
+      check(x.find("<osmand:line_3d_visualization_position_type>bottom")
+            != std::string::npos, "position defaults to bottom");
+      check(x.find("<osmand:vertical_exaggeration_scale>2.0")
+            != std::string::npos, "exaggeration is there");
+      // and they sit at <gpx> level, after the last track
+      const size_t lastTrk = x.rfind("</trk>");
+      check(x.find("<osmand:line_3d_visualization_by_type>") > lastTrk,
+            "the 3D block is file-wide, not inside a track");
+      // the slope colours are untouched
+      check(x.find("#e01b1b") != std::string::npos, "uphill red survives");
+      check(x.find("#00a03c") != std::string::npos, "downhill green survives"); }
+
+    // fixed_height carries the metres
+    { Options o; o.output = tmpDir() + "/w_fix.gpx";
+      o.viz3d = "fixed_height"; o.height3d = "500";
+      Stats st; check(process(path, o, st, err), "fixed height works");
+      std::string x = readAll(o.output);
+      check(x.find("<osmand:elevation_meters>500") != std::string::npos,
+            "elevation_meters is written for fixed_height"); }
+
+    // ...and is left out for altitude, where it means nothing
+    { Options o; o.output = tmpDir() + "/w_alt.gpx";
+      o.viz3d = "altitude"; o.height3d = "500";
+      Stats st; check(process(path, o, st, err), "altitude ignores the metres");
+      std::string x = readAll(o.output);
+      check(x.find("elevation_meters") == std::string::npos,
+            "elevation_meters is not written for altitude"); }
+
+    group("bad values are refused, not written");
+    { Options o; o.viz3d = "altitudine";
+      check(!valid3d(o, err), "a misspelled 3D type fails");
+      check(err.find("altitude") != std::string::npos, "and suggests the right one");
+      Options o2; o2.viz3d = "altitude"; o2.wall3d = "rainbow";
+      check(!valid3d(o2, err), "an unknown wall colour fails");
+      Options o3; o3.viz3d = "altitude"; o3.scale3d = "abc";
+      check(!valid3d(o3, err), "a non-numeric scale fails");
+      Options o4; o4.viz3d = "altitude"; o4.scale3d = "-2";
+      check(!valid3d(o4, err), "a negative scale fails");
+      Options o5; o5.viz3d = "altitude"; o5.wallPos3d = "sideways";
+      check(!valid3d(o5, err), "an unknown position fails");
+      Options o6; o6.viz3d = "altitude"; o6.wall3d = "upward_gradient";
+      o6.wallPos3d = "top_bottom"; o6.scale3d = "1.5";
+      check(valid3d(o6, err), "a fully valid set passes");
+      Options m; m.splitType = "distance";
+      check(!validMarkers(m, err), "distance markers without an interval fail");
+      m.splitInterval = "0";
+      check(!validMarkers(m, err), "a zero interval fails");
+      m.splitInterval = "1000";
+      check(validMarkers(m, err), "a sane interval passes"); }
+}
+
+void testNoElevationKept() {
+    group("a file with no elevation is kept, not dropped");
+    std::string err;
+
+    // a track with no <ele> at all
+    std::string path = tmpDir() + "/flat_noele.gpx";
+    {
+        std::ofstream f(path.c_str(), std::ios::binary);
+        f << "<?xml version=\"1.0\"?>\n<gpx version=\"1.1\" creator=\"t\" "
+             "xmlns=\"http://www.topografix.com/GPX/1/1\">\n"
+             "<trk><name>No heights</name><trkseg>\n";
+        for (int i = 0; i < 40; ++i)
+            f << "<trkpt lat=\"41." << 950 + i << "\" lon=\"14.2\"/>\n";
+        f << "</trkseg></trk>\n</gpx>\n";
+    }
+
+    Options o;
+    o.output = tmpDir() + "/noele_out.gpx";
+    Stats st;
+    // The whole point: this must succeed, not fail. Dropping the file used to
+    // lose a track from a merged output without the user noticing.
+    check(process(path, o, st, err), "the file is accepted, not refused");
+    check(st.noElevation, "and flagged as having no elevation");
+    check(st.sections == 0, "nothing is reported as classified");
+
+    std::string x = readAll(o.output);
+    check(x.find("<trkpt") != std::string::npos, "the points are still there");
+    size_t pts = 0, p = 0;
+    while ((p = x.find("<trkpt", p)) != std::string::npos) { ++pts; p += 6; }
+    check(pts == 40, "all 40 of them, none lost");
+    check(x.find(kNoDataColor) != std::string::npos,
+          "the track gets the neutral colour");
+    check(x.find("#e01b1b") == std::string::npos, "and no uphill red");
+    check(x.find("no elevation data") != std::string::npos,
+          "the track name says why it is not coloured");
+
+    // in a merged run it reaches the sink like any other file
+    MergeSink sink;
+    Stats st2;
+    Options m; m.merge = true;
+    check(process(path, m, st2, err, &sink), "it feeds a merged run too");
+    check(sink.files == 1 && sink.trackCount == 1,
+          "and contributes its track");
+
+    // --split-files has nothing to split, so it says so
+    Options sp; sp.splitFiles = true; sp.output.clear();
+    Stats st3;
+    check(!process(path, sp, st3, err), "--split-files refuses it");
+    check(err.find("no uphill/downhill") != std::string::npos,
+          "with a reason that makes sense");
+}
+
 int main() {
     std::cout << "gpx-slope-colors " << VERSION << " - test suite\n";
 
@@ -594,6 +844,9 @@ int main() {
     testGarminColours();
     testSensorDataPreserved();
     testGapsBetweenSections();
+    testSlopeMerge();
+    testMarkersAnd3d();
+    testNoElevationKept();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail ? 1 : 0;

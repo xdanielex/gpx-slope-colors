@@ -2,6 +2,8 @@
 
 #include "slope_core.hpp"
 
+namespace styler { int styleMain(int argc, char **argv); }
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +25,8 @@ void printUsage(const char *prog) {
 "\n"
 "options:\n"
 "  -h, --help             show this help and exit\n"
+"      --style ...        batch-apply OsmAnd appearance to whole folders,\n"
+"                         without recolouring by slope. See --style --help\n"
 "  -o, --output PATH      output file (single input only; default: next to\n"
 "                         the input file, with the suffix added)\n"
 "      --output-dir DIR   write results into DIR instead\n"
@@ -34,11 +38,30 @@ void printUsage(const char *prog) {
 "      --downhill COLOR   downhill colour (green)\n"
 "      --flat COLOR       flat colour (purple)\n"
 "      --no-flat          no flat class: everything is uphill or downhill\n"
-"      --split-files      one file per class instead of a single one\n"
+"      --split-files      separate files for uphill, downhill and flat,\n"
+"                         so each can be shown on its own in OsmAnd\n"
+"      --separate-files   with several inputs, write one output file each\n"
+"                         (default: merge them into one file to import)\n"
+"      --merge-name NAME  name of the merged file (default all-tracks.gpx)\n"
 
 "      --width W          thin | medium | bold | 1-24 (24 = maximum)\n"
 "      --no-arrows        do not show direction arrows\n"
 "      --keep-waypoints   copy <wpt> waypoints into the output\n"
+"      --markers M        distance markers along the track, every M metres.\n"
+"                         \"off\" removes markers the file already has. Left\n"
+"                         out, nothing is written. --markers-time S for time\n"
+"      --3d TYPE          3D wall under the track: altitude | fixed_height.\n"
+"                         \"none\" switches off a wall the file already has.\n"
+"                         Left out entirely, nothing is written at all.\n"
+"                         Seen best with the map tilted into 3D, though\n"
+"                         it also shows in 2D at close zoom. Works on\n"
+"                         the free OsmAnd - no subscription needed\n"
+"      --3d-scale N       wall height multiplier (default 1.0)\n"
+"      --3d-wall C        wall colour: solid (default, follows the slope\n"
+"                         colours) | upward_gradient | downward_gradient\n"
+"                         | altitude | speed | slope\n"
+"      --3d-position P    top | bottom | top_bottom   (default bottom)\n"
+"      --3d-height M      metres, only with --3d fixed_height\n"
 "      --quiet            print errors only\n"
 "      --colors           list the colour names and exit\n"
 "      --version          print the version and exit\n"
@@ -63,13 +86,28 @@ void printUsage(const char *prog) {
 "  Long track, less fragmentation, thinner line:\n"
 "      " << prog << " ride.gpx --window 100 --minlen 250 --width 16\n"
 "\n"
+"  Several stages, merged into ONE file to import:\n"
+"      " << prog << " stages/*.gpx\n"
+"      -> writes  stages/all-tracks.gpx, holding every stage with its\n"
+"         uphill/downhill colours. One import in OsmAnd, no configuring\n"
+"\n"
+"  The same, but one coloured file per stage:\n"
+"      " << prog << " stages/*.gpx --separate-files\n"
+"      -> writes  stages/tappa-01_slope.gpx, tappa-02_slope.gpx, ...\n"
+"\n"
 "  Whole folder at once, into one place:\n"
 "      " << prog << " --output-dir coloured *.gpx\n"
+"      -> writes  coloured/all-tracks.gpx\n"
 "\n"
 "where the output goes\n"
 "---------------------\n"
-"  Without -o the file is written NEXT TO THE INPUT FILE (not in the folder\n"
-"  you run the command from), with the suffix added:\n"
+"  With SEVERAL input files the results are merged into one all-tracks.gpx\n"
+"  next to the first input, so OsmAnd needs a single import. Use\n"
+"  --separate-files for the old one-output-per-input behaviour.\n"
+"\n"
+"  With ONE input file, or with --separate-files, the file is written NEXT\n"
+"  TO THE INPUT FILE (not in the folder you run the command from), with the\n"
+"  suffix added:\n"
 "\n"
 "      ride.gpx            ->  ride_slope.gpx\n"
 "      tracks/ride.gpx     ->  tracks/ride_slope.gpx\n"
@@ -123,6 +161,13 @@ bool parseDouble(const char *s, double &out, const char *flag) {
 }  // namespace
 
 int main(int argc, char **argv) {
+    // Two modes in one binary. --style must be the first argument: it takes a
+    // folder rather than a file, and its options have nothing in common with
+    // the slope ones, so mixing them would only create confusion.
+    if (argc > 1 && std::strcmp(argv[1], "--style") == 0) {
+        return styler::styleMain(argc, argv);
+    }
+
     Options opt;
     std::vector<std::string> inputs;
     bool quiet = false;
@@ -167,6 +212,55 @@ int main(int argc, char **argv) {
             opt.noFlat = true;
         } else if (a == "--split-files") {
             opt.splitFiles = true;
+        } else if (a == "--markers") {
+            // distance markers along the track
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --markers needs a value (metres, or 'off').\n";
+                return 2;
+            }
+            std::string v = argv[++i];
+            if (v == "off" || v == "no" || v == "none") {
+                opt.splitType = "no_split";
+                opt.splitInterval.clear();
+            } else {
+                opt.splitType = "distance";
+                opt.splitInterval = v;
+            }
+        } else if (a == "--markers-time") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --markers-time needs a value in seconds.\n";
+                return 2;
+            }
+            opt.splitType = "time";
+            opt.splitInterval = argv[++i];
+        } else if (a == "--3d") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --3d needs a value. Try --3d altitude\n";
+                return 2;
+            }
+            opt.viz3d = argv[++i];
+        } else if (a == "--3d-wall") {
+            if (i + 1 >= argc) { std::cerr << "Error: --3d-wall needs a value.\n"; return 2; }
+            opt.wall3d = argv[++i];
+        } else if (a == "--3d-position") {
+            if (i + 1 >= argc) { std::cerr << "Error: --3d-position needs a value.\n"; return 2; }
+            opt.wallPos3d = argv[++i];
+        } else if (a == "--3d-scale") {
+            if (i + 1 >= argc) { std::cerr << "Error: --3d-scale needs a number.\n"; return 2; }
+            opt.scale3d = argv[++i];
+        } else if (a == "--3d-height") {
+            if (i + 1 >= argc) { std::cerr << "Error: --3d-height needs metres.\n"; return 2; }
+            opt.height3d = argv[++i];
+        } else if (a == "--separate-files" || a == "--no-merge") {
+            opt.merge = false;
+        } else if (a == "--merge") {
+            opt.merge = true;
+        } else if (a == "--merge-name") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --merge-name needs a value.\n";
+                return 2;
+            }
+            opt.mergeName = argv[++i];
         } else if (a == "--no-arrows") {
             opt.arrows = false;
         } else if (a == "--keep-waypoints") {
@@ -200,19 +294,88 @@ int main(int argc, char **argv) {
     if (!resolveColor(opt.flat, dummy, err))     { std::cerr << err << "\n"; return 1; }
     if (!validWidth(opt.width, err))             { std::cerr << err << "\n"; return 1; }
 
+    // Merging is for several inputs. With one file, or with --split-files
+    // (which already writes one file per class), it would only get in the way.
+    const bool merging =
+        opt.merge && inputs.size() > 1 && !opt.splitFiles && opt.output.empty();
+
+    // A shell glob run twice hands back what the previous run wrote. With one
+    // file named explicitly that is the user's choice and is honoured; with
+    // several, output of an earlier run is dropped. Same rule as --style.
+    if (inputs.size() > 1 && !opt.suffix.empty()) {
+        std::vector<std::string> keep;
+        size_t dropped = 0;
+        for (const std::string &p : inputs) {
+            std::string stem = stripExtension(baseName(p));
+            if (stem.size() > opt.suffix.size() &&
+                stem.compare(stem.size() - opt.suffix.size(),
+                             opt.suffix.size(), opt.suffix) == 0) {
+                ++dropped;
+                continue;
+            }
+            keep.push_back(p);
+        }
+        if (!keep.empty() && dropped) {
+            if (!quiet)
+                std::cout << "skipping " << dropped << " file(s) already ending in \""
+                          << opt.suffix << "\": output of an earlier run\n";
+            inputs = keep;
+        }
+    }
+
+    // The merged file lands beside its own sources, so a shell glob run twice
+    // hands it back as an input and every track doubles. Drop it up front.
+    std::string mergePath;
+    if (merging) {
+        std::string dir = opt.outputDir;
+        if (dir.empty()) dir = dirName(inputs[0]);
+        std::string name = opt.mergeName.empty() ? "all-tracks" : opt.mergeName;
+        if (name.size() < 4 || name.substr(name.size() - 4) != ".gpx")
+            name += ".gpx";
+        mergePath = dir.empty() ? name : joinPath(dir, name);
+
+        std::vector<std::string> keep;
+        size_t dropped = 0;
+        for (const std::string &p : inputs) {
+            if (baseName(p) == baseName(mergePath)) { ++dropped; continue; }
+            keep.push_back(p);
+        }
+        if (keep.empty()) {
+            std::cerr << "Error: the only input is " << baseName(mergePath)
+                      << ", which this run would create.\n"
+                         "Point it at the original tracks, or use "
+                         "--merge-name for another name.\n";
+            return 1;
+        }
+        if (dropped && !quiet)
+            std::cout << "skipping " << baseName(mergePath)
+                      << ": that is the merged file itself\n";
+        inputs = keep;
+    }
+
+    MergeSink sink;
     int failures = 0;
     for (const std::string &in : inputs) {
         Stats st;
         std::string e;
-        if (!process(in, opt, st, e)) {
+        if (!process(in, opt, st, e, merging ? &sink : nullptr)) {
             std::cerr << baseName(in) << ": " << e << "\n";
             ++failures;
             continue;
         }
         if (quiet) continue;
 
+        if (st.noElevation)
+            std::cout << "  " << baseName(in)
+                      << ": no elevation data - kept, but not coloured by "
+                         "slope. Add elevations in OsmAnd (Analyse on map -> "
+                         "Correct altitude) and run it again.\n";
+        else if (merging)
+            std::cout << baseName(in) << ": " << st.sections << " sections\n";
         for (const std::string &w : st.written)
             std::cout << "written: " << w << "  (" << st.sections << " sections)\n";
+
+        if (st.noElevation) continue;   // nothing measured, nothing to report
 
         char buf[256];
         std::snprintf(buf, sizeof(buf),
@@ -239,6 +402,24 @@ int main(int argc, char **argv) {
         if (st.waypoints)
             std::cout << "  " << st.waypoints << " waypoint(s) copied\n";
         std::cout << "\n";
+    }
+
+    if (merging && sink.files > 0) {
+        const std::string &path = mergePath;
+        std::string e;
+        if (!writeMerged(sink, path, opt, e)) {
+            std::cerr << e << "\n";
+            return 1;
+        }
+        if (!quiet) {
+            std::cout << "written: " << path << "\n"
+                      << sink.files << " file(s) merged, "
+                      << sink.trackCount << " coloured sections";
+            if (sink.waypointCount)
+                std::cout << ", " << sink.waypointCount << " waypoint(s)";
+            std::cout << "\nImport this one file into OsmAnd, "
+                         "with \"import as one track\".\n";
+        }
     }
 
     if (failures && !quiet)

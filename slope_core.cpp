@@ -206,7 +206,11 @@ std::string xmlHeader(const std::string &name) {
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            "<gpx version=\"1.1\" creator=\"gpx-slope-colors\"\n"
            "     xmlns=\"http://www.topografix.com/GPX/1/1\"\n"
-           "     xmlns:osmand=\"https://osmand.net\"\n"
+           // The URI documented by OsmAnd. The app does not validate it, but
+           // matching the published form keeps the file correct for anything
+           // that does.
+           "     xmlns:osmand=\"https://osmand.net/docs/technical/"
+           "osmand-file-formats/osmand-gpx\"\n"
            "     xmlns:gpxx=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\"\n"
            "     xmlns:gpxtrx=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\"\n"
            // Declared because preserved per-point <extensions> blocks carry
@@ -365,6 +369,60 @@ std::string trkBlock(const std::string &name, const std::string &color,
         o += "      </trkpt>\n";
     }
     o += "    </trkseg>\n  </trk>\n";
+    return o;
+}
+
+// File-level <extensions>, written just before </gpx>.
+//
+// OsmAnd only honours show_arrows and show_start_finish when they sit at the
+// <gpx> level; the same tags inside <trk><extensions> are silently ignored.
+// Verified on OsmAnd Android, September 2026: two files identical except for
+// the position of the block, only the <gpx>-level one drew the arrows.
+// Per-track colour and width, by contrast, DO work inside <trk>, which is why
+// they stay there and only the file-wide switches are repeated here.
+//
+// GPX 1.1 requires <extensions> to be the last child of <gpx>, after every
+// <wpt>, <rte> and <trk>, so this must be emitted immediately before the
+// closing tag.
+std::string gpxLevelExtensions(bool arrows, const Options &opt) {
+    std::string o;
+    o += "  <extensions>\n";
+    o += std::string("    <osmand:show_arrows>") + (arrows ? "true" : "false") +
+         "</osmand:show_arrows>\n";
+    if (!opt.splitType.empty())
+        o += "    <osmand:split_type>" + opt.splitType +
+             "</osmand:split_type>\n";
+    if (!opt.splitInterval.empty())
+        o += "    <osmand:split_interval>" + asDouble(opt.splitInterval) +
+             "</osmand:split_interval>\n";
+    // The 3D wall. Written only when asked for: it is a paid OsmAnd feature,
+    // and the tags are harmless but pointless for everyone else.
+    // Empty means "not asked for", so nothing is written and the file keeps
+    // whatever it had. An explicit "none" is a request to turn the wall off,
+    // which needs the tag to actually be there.
+    if (opt.viz3d == "none") {
+        o += "    <osmand:line_3d_visualization_by_type>none"
+             "</osmand:line_3d_visualization_by_type>\n";
+    } else if (!opt.viz3d.empty()) {
+        o += "    <osmand:line_3d_visualization_by_type>" + opt.viz3d +
+             "</osmand:line_3d_visualization_by_type>\n";
+        // "solid" makes the wall take each track's own colour, so under an
+        // uphill section the wall is the uphill colour. Any gradient here
+        // would paint over the slope colours this program just worked out.
+        o += "    <osmand:line_3d_visualization_wall_color_type>" +
+             (opt.wall3d.empty() ? std::string("solid") : opt.wall3d) +
+             "</osmand:line_3d_visualization_wall_color_type>\n";
+        o += "    <osmand:line_3d_visualization_position_type>" +
+             (opt.wallPos3d.empty() ? std::string("bottom") : opt.wallPos3d) +
+             "</osmand:line_3d_visualization_position_type>\n";
+        if (!opt.scale3d.empty())
+            o += "    <osmand:vertical_exaggeration_scale>" + opt.scale3d +
+                 "</osmand:vertical_exaggeration_scale>\n";
+        if (opt.viz3d == "fixed_height" && !opt.height3d.empty())
+            o += "    <osmand:elevation_meters>" + opt.height3d +
+                 "</osmand:elevation_meters>\n";
+    }
+    o += "  </extensions>\n";
     return o;
 }
 
@@ -768,36 +826,133 @@ std::vector<Section> groupSections(const std::vector<Klass> &classes,
 
 // ------------------------------------------------------------------ main
 
+bool valid3d(const Options &opt, std::string &error) {
+    if (opt.viz3d.empty()) return true;
+    static const char *kBy[] = {"none", "altitude", "fixed_height",
+                                "shared_string_speed",
+                                "map_widget_ant_heart_rate",
+                                "map_widget_ant_bicycle_cadence",
+                                "map_widget_ant_bicycle_power",
+                                "shared_string_temperature"};
+    bool ok = false;
+    for (const char *v : kBy) if (opt.viz3d == v) ok = true;
+    if (!ok) {
+        error = "unknown --3d value \"" + opt.viz3d +
+                "\". Use: altitude, fixed_height or none.";
+        return false;
+    }
+    if (!opt.wall3d.empty()) {
+        static const char *kWall[] = {"none", "solid", "downward_gradient",
+                                      "upward_gradient", "altitude", "slope",
+                                      "speed"};
+        ok = false;
+        for (const char *v : kWall) if (opt.wall3d == v) ok = true;
+        if (!ok) {
+            error = "unknown --3d-wall value \"" + opt.wall3d +
+                    "\". Use: solid, upward_gradient, downward_gradient, "
+                    "altitude, slope or speed.";
+            return false;
+        }
+    }
+    if (!opt.wallPos3d.empty() && opt.wallPos3d != "top" &&
+        opt.wallPos3d != "bottom" && opt.wallPos3d != "top_bottom") {
+        error = "unknown --3d-position value \"" + opt.wallPos3d +
+                "\". Use: top, bottom or top_bottom.";
+        return false;
+    }
+    for (const auto &p : {std::make_pair(opt.scale3d, "--3d-scale"),
+                          std::make_pair(opt.height3d, "--3d-height")}) {
+        if (p.first.empty()) continue;
+        char *end = nullptr;
+        double v = std::strtod(p.first.c_str(), &end);
+        if (end == p.first.c_str() || *end != '\0' || v <= 0) {
+            error = std::string(p.second) + " wants a positive number, got \"" +
+                    p.first + "\".";
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string asDouble(const std::string &n) {
+    if (n.empty()) return n;
+    if (n.find('.') != std::string::npos) return n;   // already has one
+    char *end = nullptr;
+    double v = std::strtod(n.c_str(), &end);
+    if (end == n.c_str() || *end != '\0') return n;   // not a number, leave it
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.1f", v);
+    return buf;
+}
+
+bool validMarkers(const Options &opt, std::string &error) {
+    if (opt.splitType.empty()) return true;
+    if (opt.splitType != "no_split" && opt.splitType != "distance" &&
+        opt.splitType != "time") {
+        error = "split type must be no_split, distance or time.";
+        return false;
+    }
+    if (opt.splitType == "no_split") return true;
+    if (opt.splitInterval.empty()) {
+        error = "distance markers need an interval.";
+        return false;
+    }
+    char *end = nullptr;
+    double v = std::strtod(opt.splitInterval.c_str(), &end);
+    if (end == opt.splitInterval.c_str() || *end != '\0' || v <= 0) {
+        error = "marker interval wants a positive number, got \"" +
+                opt.splitInterval + "\".";
+        return false;
+    }
+    return true;
+}
+
+const char *const kNoDataColor = "#f2c200";
+
 bool process(const std::string &inputPath, const Options &opt,
-             Stats &stats, std::string &error) {
+             Stats &stats, std::string &error, MergeSink *sink) {
     std::vector<Point> pts;
     if (!readPoints(inputPath, pts, error)) return false;
     if (pts.size() < 2) {
         error = "The track contains fewer than 2 points.";
         return false;
     }
-    if (!fillMissingElevations(pts)) {
-        error = "No elevation data (<ele>) in this GPX file. Add elevations "
-                "first, for example with OsmAnd's altitude correction.";
-        return false;
-    }
+    // No elevation anywhere in the file. There is nothing to classify, but
+    // refusing the file outright used to drop it from a merged output, which
+    // silently lost a track. Keep it, in a neutral colour, and let the caller
+    // report why it is not coloured.
+    const bool noEle = !fillMissingElevations(pts);
+    stats.noElevation = noEle;
 
     std::string upHex, downHex, flatHex;
     if (!resolveColor(opt.uphill, upHex, error)) return false;
     if (!resolveColor(opt.downhill, downHex, error)) return false;
     if (!resolveColor(opt.flat, flatHex, error)) return false;
     if (!validWidth(opt.width, error)) return false;
+    if (!valid3d(opt, error)) return false;
+    if (!validMarkers(opt, error)) return false;
 
     std::vector<double> dist = cumulativeDistance(pts);
-    std::vector<Klass> classes =
-        classify(pts, dist, opt.window, opt.threshold, !opt.noFlat);
-    std::vector<Section> secs = groupSections(classes, dist, opt.minlen);
+    std::vector<Section> secs;
+    if (noEle) {
+        Section whole;
+        whole.first = 0;
+        whole.last  = pts.size() - 1;
+        whole.klass = Klass::Flat;   // a placeholder; colourFor overrides it
+        secs.push_back(whole);
+    } else {
+        std::vector<Klass> classes =
+            classify(pts, dist, opt.window, opt.threshold, !opt.noFlat);
+        secs = groupSections(classes, dist, opt.minlen);
+    }
 
     stats.points = pts.size();
     stats.sections = secs.size();
     stats.totalM = dist.back();
     stats.uphillM = stats.downhillM = stats.flatM = 0.0;
+    if (noEle) stats.sections = 0;   // nothing was classified
     for (const Section &s : secs) {
+        if (noEle) break;
         double len = dist[s.last] - dist[s.first];
         if (s.klass == Klass::Uphill)        stats.uphillM += len;
         else if (s.klass == Klass::Downhill) stats.downhillM += len;
@@ -814,6 +969,7 @@ bool process(const std::string &inputPath, const Options &opt,
         base = joinPath(opt.outputDir, niceName);
 
     auto colorFor = [&](Klass k) {
+        if (noEle) return std::string(kNoDataColor);
         if (k == Klass::Uphill) return upHex;
         if (k == Klass::Downhill) return downHex;
         return flatHex;
@@ -825,6 +981,37 @@ bool process(const std::string &inputPath, const Options &opt,
     auto lastIndex = [&](size_t sectionLast) {
         return std::min(sectionLast + 1, pts.size() - 1);
     };
+
+    // ---- merging: hand the blocks to the caller instead of writing ----
+    //
+    // The track name is prefixed with the source file so six stages stay
+    // tellable apart in OsmAnd's track list, where they now share one file.
+    if (sink) {
+        for (const std::string &w : wpts) {
+            sink->waypoints += "  " + w + "\n";
+            ++sink->waypointCount;
+        }
+        int i = 1;
+        for (const Section &s : secs) {
+            char num[16];
+            std::snprintf(num, sizeof(num), "%03d ", i++);
+            sink->tracks += trkBlock(niceName + (noEle
+                                         ? std::string(" - no elevation data")
+                                         : " - " + std::string(num) +
+                                               klassLabel(s.klass)),
+                                     colorFor(s.klass), pts, s.first,
+                                     lastIndex(s.last), opt.width, opt.arrows);
+            ++sink->trackCount;
+        }
+        ++sink->files;
+        return true;
+    }
+
+    if (opt.splitFiles && noEle) {
+        error = "No elevation data (<ele>) in this file, so there are no "
+                "uphill/downhill classes to split into.";
+        return false;
+    }
 
     if (opt.splitFiles) {
         const Klass kinds[3] = {Klass::Uphill, Klass::Downhill, Klass::Flat};
@@ -847,6 +1034,7 @@ bool process(const std::string &inputPath, const Options &opt,
                 f << trkBlock(nm.str(), colorFor(k), pts, s->first,
                               lastIndex(s->last), opt.width, opt.arrows);
             }
+            f << gpxLevelExtensions(opt.arrows, opt);
             f << "</gpx>\n";
             if (!f) { error = "Failed while writing: " + path; return false; }
             stats.written.push_back(path);
@@ -877,12 +1065,35 @@ bool process(const std::string &inputPath, const Options &opt,
     for (const Section &s : secs) {
         char num[16];
         std::snprintf(num, sizeof(num), "%03d ", i++);
-        f << trkBlock(std::string(num) + klassLabel(s.klass), colorFor(s.klass),
+        f << trkBlock(noEle ? niceName + " - no elevation data"
+                            : std::string(num) + klassLabel(s.klass),
+                      colorFor(s.klass),
                       pts, s.first, lastIndex(s.last), opt.width, opt.arrows);
     }
+    f << gpxLevelExtensions(opt.arrows, opt);
     f << "</gpx>\n";
     if (!f) { error = "Failed while writing: " + outPath; return false; }
     stats.written.push_back(outPath);
+    return true;
+}
+
+bool writeMerged(const MergeSink &sink, const std::string &path,
+                 const Options &opt, std::string &error) {
+    if (sink.trackCount == 0) {
+        error = "Nothing to write.";
+        return false;
+    }
+    std::ofstream f;
+    openOut(f, path);
+    if (!f) { error = "Cannot write: " + path; return false; }
+    f << xmlHeader(stripExtension(baseName(path)));
+    // GPX 1.1 fixes the order: every <wpt> first, then the tracks, then the
+    // file-level <extensions>.
+    f << sink.waypoints;
+    f << sink.tracks;
+    f << gpxLevelExtensions(opt.arrows, opt);
+    f << "</gpx>\n";
+    if (!f) { error = "Failed while writing: " + path; return false; }
     return true;
 }
 

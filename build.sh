@@ -25,7 +25,7 @@ if ! command -v "$CXX" >/dev/null 2>&1; then
 fi
 
 echo "Compiling with $CXX ..."
-"$CXX" -std=c++17 -O2 -o gpx-slope-colors main_cli.cpp slope_core.cpp
+"$CXX" -std=c++17 -O2 -o gpx-slope-colors main_cli.cpp styler_cli.cpp slope_core.cpp styler_core.cpp styler_palette.cpp
 chmod +x gpx-slope-colors
 
 echo
