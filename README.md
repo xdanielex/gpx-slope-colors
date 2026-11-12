@@ -16,6 +16,8 @@ One self-contained executable. No Python, no runtime, no installer.
 [![Tests](https://img.shields.io/badge/tests-344%20passing-brightgreen.svg)](#tests-and-verification)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#installing)
 
+**Listed in the [official OsmAnd documentation](https://osmand.net/docs/user/troubleshooting/resources/#converters)** — added through merged PR [osmandapp/web#2062](https://github.com/osmandapp/web/pull/2062).
+
 ![A GPX track coloured by slope](preview.svg)
 
 </div>
